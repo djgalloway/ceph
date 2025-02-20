@@ -1,0 +1,41 @@
+name: Retrigger Read the Docs Build for PR Branch
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  retrigger-rtd:
+    if: github.event.issue.pull_request &&
+        (contains(github.event.comment.body, '/rebuild-docs') || 
+         contains(github.event.comment.body, '/trigger-docs') || 
+         contains(github.event.comment.body, '/update-docs'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract PR Branch Name
+        run: |
+          PR_URL="${{ github.event.issue.pull_request.url }}"
+          PR_BRANCH=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "${PR_URL}" | jq -r .head.ref)
+          echo "PR_BRANCH=${PR_BRANCH}" >> $GITHUB_ENV
+          echo "Detected PR Branch: ${PR_BRANCH}"
+
+      - name: Trigger Read the Docs Build for PR Branch
+        run: |
+          RESPONSE=$(curl -s -o output.json -w "%{http_code}" -X POST \
+            -H "Authorization: Token ${{ secrets.READTHEDOCS_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"branches\": [\"${PR_BRANCH}\"]}" \
+            https://readthedocs.org/api/v3/projects/<your-project>/builds/)
+
+          cat output.json
+          echo "Response Code: $RESPONSE"
+
+          if [ "$RESPONSE" -ne 201 ]; then
+            echo "Read the Docs API call failed."
+            exit 1
+          fi
