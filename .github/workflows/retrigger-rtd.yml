@@ -1,0 +1,32 @@
+name: Retrigger Read the Docs Build
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  retrigger-rtd:
+    if: github.event.issue.pull_request &&
+        (contains(github.event.comment.body, 'jenkins test docs') ||
+         contains(github.event.comment.body, 'jenkins rebuild docs') ||
+         contains(github.event.comment.body, 'jenkins retrigger docs'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract PR Branch Name
+        run: |
+          PR_URL="${{ github.event.issue.pull_request.url }}"
+          PR_BRANCH=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "${PR_URL}" | jq -r .head.ref)
+          echo "PR_BRANCH=${PR_BRANCH}" >> $GITHUB_ENV
+          echo "Detected PR Branch: ${PR_BRANCH}"
+
+      - name: Trigger Read the Docs build
+        run: |
+          curl -X POST \
+            "https://readthedocs.org/api/v3/projects/ceph/versions/${{ env.PR_BRANCH }}/builds/" \
+            -H "Authorization: Token ${{ secrets.READTHEDOCS_API_TOKEN }}" \
+            -H "Content-Type: application/json"
