@@ -21,6 +21,7 @@
 # https://rpm-software-management.github.io/rpm/manual/conditionalbuilds.html
 #################################################################################
 %bcond_with make_check
+%bcond_with make_check
 %bcond_with cmake_verbose_logging
 %bcond_without ceph_test_package
 %ifarch s390
