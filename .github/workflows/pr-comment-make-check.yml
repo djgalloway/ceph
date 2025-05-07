@@ -1,0 +1,39 @@
+name: Trigger 'make check' on PR comment
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  trigger-make-check-on-comment:
+  permissions:
+    pull-requests: read
+    if: |
+      github.event.issue.pull_request != null &&
+      (
+        contains(github.event.comment.body, 'jenkins test all') ||
+        contains(github.event.comment.body, 'jenkins test make check')
+      )
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Extract PR info
+        run: |
+          GH_PULL_REQUEST_URL="${{ github.event.issue.pull_request.url }}"
+          GH_PULL_REQUEST_ID="${GH_PULL_REQUEST_URL##*/}"
+          echo "GH_PULL_REQUEST_ID=$GH_PULL_REQUEST_ID" >> "$GITHUB_ENV"
+
+      - name: Get PR SHA
+        id: pr_sha
+        run: |
+          pr_sha=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "${{ github.event.issue.pull_request.url }}" | jq -r .head.sha)
+          echo "pr_sha=$pr_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Jenkins job
+        run: |
+          curl -X POST "https://jenkins.ceph.com/job/ceph-pull-requests/buildWithParameters" \
+            --user "${{ secrets.JENKINS_USER }}:${{ secrets.JENKINS_API_TOKEN }}" \
+            --data-urlencode "GH_PULL_REQUEST_ID=${{ env.GH_PULL_REQUEST_ID }}" \
+            --data-urlencode "GH_PULL_REQUEST_SHA=${{ steps.pr_sha.outputs.pr_sha }}" \
+            --data-urlencode "TRIGGERED_BY=https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
