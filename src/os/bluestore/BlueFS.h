@@ -434,6 +434,9 @@ public:
     // NOTE: caller must call BlueFS::close_writer()
     ~FileWriter() {
       --file->num_writers;
+      for (unsigned i = 0; i < MAX_BDEV; ++i) {
+        delete iocv[i];
+      }
     }
 
     // note: BlueRocksEnv uses this append exclusively, so it's safe
@@ -563,7 +566,7 @@ private:
   struct {
     ceph::mutex lock = ceph::make_mutex("BlueFS::log.lock");
     uint64_t seq_live = 1;   //seq that log is currently writing to; mirrors dirty.seq_live
-    FileWriter *writer = 0;
+    FileWriter *writer = nullptr;
     bluefs_transaction_t t;
     bool uses_envelope_mode = false; // true if any file is in envelope mode
   } log;

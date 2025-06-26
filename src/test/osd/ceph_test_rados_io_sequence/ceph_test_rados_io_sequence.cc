@@ -84,6 +84,22 @@ void validate(boost::any& v, const std::vector<std::string>& values,
   v = boost::any(std::pair<int, int>{first, second});
 }
 
+struct SequencePair {};
+void validate(boost::any& v, const std::vector<std::string>& values,
+              SequencePair* target_type, int) {
+  po::validators::check_first_occurrence(v);
+  const std::string& s = po::validators::get_single_string(values);
+  auto part = ceph::split(s).begin();
+  std::string parse_error;
+  int first = strict_iecstrtoll(*part++, &parse_error);
+  int second = strict_iecstrtoll(*part, &parse_error);
+  if (!parse_error.empty()) {
+    throw po::validation_error(po::validation_error::invalid_option_value);
+  }
+  v = boost::any(std::make_pair(static_cast<ceph::io_exerciser::Sequence>(first),
+                                static_cast<ceph::io_exerciser::Sequence>(second)));
+}
+
 struct PluginString {};
 void validate(boost::any& v, const std::vector<std::string>& values,
               PluginString* target_type, int) {
@@ -155,7 +171,7 @@ po::options_description get_options_description() {
                                                     "show list of sequences")(
       "dryrun,d", "test sequence, do not issue any I/O")(
       "verbose", "more verbose output during test")(
-      "sequence,s", po::value<int>(), "test specified sequence")(
+      "sequence,s", po::value<SequencePair>(), "test specified sequence range")(
       "seed", po::value<int>(), "seed for whole test")(
       "seqseed", po::value<int>(), "seed for sequence")(
       "blocksize,b", po::value<Size>(), "block size (default 2048)")(
@@ -246,17 +262,16 @@ ceph::io_sequence::tester::SelectSeqRange::SelectSeqRange(po::variables_map& vm)
                                     ceph::io_exerciser::Sequence>>(vm,
                                                                    "sequence") {
   if (vm.count(option_name)) {
-    ceph::io_exerciser::Sequence s =
-        static_cast<ceph::io_exerciser::Sequence>(vm["sequence"].as<int>());
-    if (s < ceph::io_exerciser::Sequence::SEQUENCE_BEGIN ||
-        s >= ceph::io_exerciser::Sequence::SEQUENCE_END) {
+    using SeqPair = std::pair<ceph::io_exerciser::Sequence, ceph::io_exerciser::Sequence>;
+    SeqPair s = vm["sequence"].as<SeqPair>();
+    if (s.first < ceph::io_exerciser::Sequence::SEQUENCE_BEGIN ||
+        s.second >= ceph::io_exerciser::Sequence::SEQUENCE_END ||
+        s.first > s.second) {
       dout(0) << "Sequence argument out of range" << dendl;
       throw po::validation_error(po::validation_error::invalid_option_value);
     }
-    ceph::io_exerciser::Sequence e = s;
-    force_value = std::make_optional<
-        std::pair<ceph::io_exerciser::Sequence, ceph::io_exerciser::Sequence>>(
-        std::make_pair(s, ++e));
+    ++s.second;
+    force_value = s;
   }
 }
 
@@ -318,7 +333,15 @@ ceph::io_sequence::tester::lrc::SelectMappingAndLayers::SelectMappingAndLayers(
       sma{mapping_rng, vm, "mapping", first_use},
       sly{layers_rng, vm, "layers", first_use} {
   if (sma.isForced() != sly.isForced()) {
-    ceph_abort_msg("Mapping and layers must be used together when one is used");
+    std::string forced_parameter = "mapping";
+    std::string unforced_parameter = "layers";
+    if (sly.isForced()) {
+      std::swap(forced_parameter, unforced_parameter);
+    }
+
+    throw std::invalid_argument(fmt::format("The parameter --{} can only be used"
+                                " when a --{} parameter is also supplied.",
+                                forced_parameter, unforced_parameter));
   }
 }
 
@@ -555,10 +578,9 @@ ceph::io_sequence::tester::SelectErasureProfile::SelectErasureProfile(
 
     for (std::string& option : disallowed_options) {
       if (vm.count(option) > 0) {
-        ceph_abort_msg(
-            fmt::format("{} option not allowed "
-                        "if profile is specified",
-                        option));
+        throw std::invalid_argument(fmt::format("{} option not allowed "
+                                                "if profile is specified",
+                                                option));
       }
     }
   }
@@ -638,7 +660,9 @@ ceph::io_sequence::tester::SelectErasureProfile::select() {
     instance.factory(std::string(profile.plugin),
                      cct->_conf.get_val<std::string>("erasure_code_dir"),
                      erasure_code_profile, &ec_impl, &ss);
-    ceph_assert(ec_impl);
+    if (!ec_impl) {
+      throw std::runtime_error(ss.str());
+    }
 
     SelectErasureChunkSize scs{rng, vm, ec_impl, first_use};
     profile.chunk_size = scs.select();
@@ -784,10 +808,9 @@ ceph::io_sequence::tester::SelectErasurePool::SelectErasurePool(
 
     for (std::string& option : disallowed_options) {
       if (vm.count(option) > 0) {
-        ceph_abort_msg(
-            fmt::format("{} option not allowed "
-                        "if pool is specified",
-                        option));
+        throw std::invalid_argument(fmt::format("{} option not allowed "
+                                    "if pool is specified",
+                                    option));
       }
     }
   }
@@ -1112,27 +1135,32 @@ void ceph::io_sequence::tester::TestRunner::list_sequence(bool testrecovery) {
   std::pair<int, int> obj_size_range = sos.select();
   ceph::io_exerciser::Sequence s = ceph::io_exerciser::Sequence::SEQUENCE_BEGIN;
   std::unique_ptr<ceph::io_exerciser::IoSequence> seq;
+  std::optional<std::pair<int, int>> km;
+  std::optional<std::pair<std::string_view, std::string_view>> mappinglayers;
   if (testrecovery) {
     std::optional<ceph::io_sequence::tester::Profile> profile =
         spo.getProfile();
-    std::optional<std::pair<int, int>> km;
-    std::optional<std::pair<std::string_view, std::string_view>> mappinglayers;
     if (profile) {
       km = profile->km;
       if (profile->mapping && profile->layers) {
         mappinglayers = {*spo.getProfile()->mapping, *spo.getProfile()->layers};
       }
     }
-    seq = ceph::io_exerciser::EcIoSequence::generate_sequence(
-        s, obj_size_range, km, mappinglayers, seqseed.value_or(rng()));
-  } else {
-    seq = ceph::io_exerciser::IoSequence::generate_sequence(
-        s, obj_size_range, seqseed.value_or(rng()));
   }
 
   do {
+    if (testrecovery) {
+      seq = ceph::io_exerciser::EcIoSequence::generate_sequence(
+        s, obj_size_range, km, mappinglayers, seqseed.value_or(rng()));
+    }
+    else {
+      seq = ceph::io_exerciser::IoSequence::generate_sequence(
+        s, obj_size_range, seqseed.value_or(rng()));
+    }
+
     dout(0) << s << " " << seq->get_name_with_seqseed() << dendl;
     s = seq->getNextSupportedSequenceId();
+
   } while (s != ceph::io_exerciser::Sequence::SEQUENCE_END);
 }
 
@@ -1381,10 +1409,16 @@ bool ceph::io_sequence::tester::TestRunner::run_automated_test() {
     } else {
       name = object_name + std::to_string(obj);
     }
-    test_objects.push_back(
-        std::make_shared<ceph::io_sequence::tester::TestObject>(
-            name, rados, asio, sbs, spo, sos, snt, ssr, rng, lock, cond, dryrun,
-            verbose, seqseed, testrecovery));
+    try {
+      test_objects.push_back(
+          std::make_shared<ceph::io_sequence::tester::TestObject>(
+              name, rados, asio, sbs, spo, sos, snt, ssr, rng, lock, cond,
+              dryrun, verbose, seqseed, testrecovery));
+    }
+    catch (const std::runtime_error &e) {
+      std::cerr << "Error: " << e.what() << std::endl;
+      return false;
+    }
   }
   if (!dryrun) {
     rados.wait_for_latest_osdmap();
@@ -1468,8 +1502,14 @@ int main(int argc, char** argv) {
         std::make_unique<ceph::io_sequence::tester::TestRunner>(cct, vm, rados);
   } catch (const po::error& e) {
     return 1;
+  } catch (const std::invalid_argument& e) {
+    std::cerr << "Error: " << e.what() << std::endl;
+    return 1;
   }
-  runner->run_test();
+
+  if (!runner->run_test()) {
+    return 1;
+  }
 
   return 0;
 }

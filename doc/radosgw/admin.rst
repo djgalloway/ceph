@@ -14,7 +14,7 @@ Ceph Object Storage user management refers only to users of the Ceph Object
 Storage service and not to the Ceph Object Gateway as a user of the Ceph
 Storage Cluster. Create a user, access key, and secret key to enable end users
 to interact with Ceph Object Gateway services. Optionally, the users can belong
-to `Accounts`_ for ease of management.
+to :ref:`Accounts <radosgw-account>` for ease of management.
 
 There are two types of user: 
 
@@ -364,7 +364,7 @@ To remove a Swift secret key, run a command of the following form:
 Add or Remove Admin Capabilities
 --------------------------------
 
-The Ceph Storage Cluster provides an `Admin Ops API`_ that enables users to
+The Ceph Storage Cluster provides an :ref:`Admin Ops API <radosgw admin ops>` that enables users to
 execute administrative functions via the REST API. By default, users do NOT
 have access to this API. To enable a user to exercise administrative
 functionality, provide the user with administrative capabilities.
@@ -404,7 +404,7 @@ Users with the ``--admin`` or ``--system`` flag have global read and write
 permissions. These permissions apply to all APIs including S3 and Swift,
 unlike Admin Capabilities, and cannot be denied by IAM policy.
 
-The ``--system`` flag should only be used as documented in `Multisite Configuration`_.
+The ``--system`` flag should only be used as documented in :ref:`Multisite Configuration <multisite>`.
 
 The ``--admin`` flag can be useful for troubleshooting and recovery. For
 example, if a user accidentally removes their permissions to a bucket or
@@ -439,9 +439,6 @@ The Ceph Object Gateway makes it possible for you to set quotas on users and
 buckets owned by users. Quotas include the maximum number of objects in a
 bucket and the maximum storage size a bucket can hold.
 
-- **Bucket:** The ``--bucket`` option allows you to specify a quota for
-  buckets the user owns.
-
 - **Maximum Objects:** The ``--max-objects`` setting allows you to specify
   the maximum number of objects. A negative value disables this setting.
   
@@ -450,13 +447,12 @@ bucket and the maximum storage size a bucket can hold.
   setting.
   
 - **Quota Scope:** The ``--quota-scope`` option sets the scope for the quota.
-  The options are ``bucket`` and ``user``. Bucket quotas apply to each bucket
-  owned by the user. User Quotas are summed across all buckets owned by the
-  user. 
-
+  The options are ``bucket`` and ``user``.
 
 Set User Quota
 --------------
+
+User Quotas are summed across all buckets owned by the user.
 
 Before you enable a quota, you must first set the quota parameters.
 To set quota parameters, run a command of the following form: 
@@ -494,13 +490,14 @@ To disable an enabled user quota, run a command of the following form:
 Set Bucket Quota
 ----------------
 
-Bucket quotas apply to the buckets owned by the specified ``uid``. They are
-independent of the user. To set a bucket quota, run a command of the following
-form:
+If the ``--bucket`` option is specified, the bucket quota applies to a single bucket with the specified name.
+Else, if the ``--uid`` option is specified, the bucket quota applies to all buckets owned by the user with the specified UID.
+
+To set a bucket quota, run a command of the following form:
 
 .. prompt:: bash #
 
-   radosgw-admin quota set --uid=<uid> --quota-scope=bucket [--max-objects=<num objects>] [--max-size=<max size]
+   radosgw-admin quota set --quota-scope=bucket {--bucket=<bucket name> | --uid=<uid>} [--max-objects=<num objects>] [--max-size=<max size>]
 
 A negative value for ``--max-objects`` or ``--max-size`` means that the
 specific quota attribute is disabled.
@@ -572,8 +569,7 @@ quota is set for all subsequently-created users, and that quota is enabled. See
 ``rgw_bucket_default_quota_max_objects``,
 ``rgw_bucket_default_quota_max_size``, ``rgw_user_default_quota_max_objects``,
 ``rgw_user_default_quota_max_size``, ``rgw_account_default_quota_max_objects``,
-and ``rgw_account_default_quota_max_size`` in `Ceph Object Gateway Config
-Reference`_.
+and ``rgw_account_default_quota_max_size`` in :ref:`radosgw-config-ref`.
 
 Quota Cache
 -----------
@@ -595,7 +591,7 @@ the multiple RGW instances closer to perfect quota synchronization.
 
 If all three values are set to ``0`` , then quota caching is effectively
 disabled, and multiple instances will have perfect quota enforcement.  See
-`Ceph Object Gateway Config Reference`_.
+:ref:`radosgw-config-ref`.
 
 Reading / Writing Global Quotas
 -------------------------------
@@ -929,10 +925,3 @@ example commands:
    radosgw-admin usage trim --uid=johndoe	
    radosgw-admin usage trim --uid=johndoe --end-date=2013-12-31
 
-
-.. _radosgw-admin: ../../man/8/radosgw-admin/
-.. _Pool Configuration: ../../rados/configuration/pool-pg-config-ref/
-.. _Ceph Object Gateway Config Reference: ../config-ref/
-.. _Accounts: ../account/
-.. _Admin Ops API: ../adminops/
-.. _Multisite Configuration: ../multisite/

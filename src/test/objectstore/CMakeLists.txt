@@ -12,6 +12,7 @@ target_include_directories(store_test_fixture PRIVATE
 add_executable(ceph_test_objectstore
   store_test.cc
   $<TARGET_OBJECTS:store_test_fixture>)
+
 target_link_libraries(ceph_test_objectstore
   os
   ceph-common
@@ -24,12 +25,27 @@ target_link_libraries(ceph_test_objectstore
 install(TARGETS ceph_test_objectstore
   DESTINATION ${CMAKE_INSTALL_BINDIR})
 
+add_executable(ceph_test_bluestore_vselector
+  test_bluestore_vselector.cc)
+
+target_link_libraries(ceph_test_bluestore_vselector
+  os
+  ceph-common
+  ${UNITTEST_LIBS}
+  global
+  ${EXTRALIBS}
+  ${BLKID_LIBRARIES}
+  ${CMAKE_DL_LIBS}
+  )
+install(TARGETS ceph_test_bluestore_vselector
+  DESTINATION ${CMAKE_INSTALL_BINDIR})
+
 add_subdirectory(allocsim)
 
 add_executable(ceph_test_keyvaluedb
   test_kv.cc)
 target_link_libraries(ceph_test_keyvaluedb
-  os
+  kv
   ceph-common
   ${UNITTEST_LIBS}
   global
@@ -46,7 +62,9 @@ add_executable(unittest_rocksdb_option
   $<TARGET_OBJECTS:unit-main>
   )
 add_ceph_unittest(unittest_rocksdb_option)
-target_link_libraries(unittest_rocksdb_option global os ${BLKID_LIBRARIES})
+target_link_libraries(unittest_rocksdb_option
+  global os ${BLKID_LIBRARIES}
+  RocksDB::RocksDB)
 
 # ceph_test_bluefs (a clone of unittest_bluefs)
 add_executable(ceph_test_bluefs

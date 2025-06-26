@@ -4256,7 +4256,7 @@ int RGWRados::stat_remote_obj(const DoutPrefixProvider *dpp,
     ret = conn->complete_request(dpp, in_stream_req, nullptr, &set_mtime, psize,
                                  nullptr, pheaders, y);
     if (ret < 0) {
-      if (ret == -EIO && tries < NUM_ENPOINT_IOERROR_RETRIES - 1) {
+      if (ret == -ERR_INTERNAL_ERROR && tries < NUM_ENPOINT_IOERROR_RETRIES - 1) {
         ldpp_dout(dpp, 20) << __func__  << "(): failed to fetch object from remote. retries=" << tries << dendl;
         continue;
       }
@@ -4523,7 +4523,7 @@ int RGWRados::fetch_remote_obj(RGWObjectCtx& dest_obj_ctx,
     ret = conn->complete_request(rctx.dpp, in_stream_req, &etag, &set_mtime,
                                  &accounted_size, nullptr, nullptr, rctx.y);
     if (ret < 0) {
-      if (ret == -EIO && tries < NUM_ENPOINT_IOERROR_RETRIES - 1) {
+      if (ret == -ERR_INTERNAL_ERROR && tries < NUM_ENPOINT_IOERROR_RETRIES - 1) {
         ldpp_dout(rctx.dpp, 20) << __func__ << "(): failed to fetch " << fetched_obj
                                 << " from remote. retries=" << tries << dendl;
         continue;
@@ -4802,7 +4802,7 @@ int RGWRados::copy_obj_to_remote_dest(const DoutPrefixProvider *dpp,
 
     ret = rest_master_conn->complete_request(dpp, out_stream_req, etag, mtime, y);
     if (ret < 0) {
-      if (ret == -EIO && tries < NUM_ENPOINT_IOERROR_RETRIES - 1) {
+      if (ret == -ERR_INTERNAL_ERROR && tries < NUM_ENPOINT_IOERROR_RETRIES - 1) {
         ldpp_dout(dpp, 20) << __func__  << "(): failed to put_obj_async_init. retries=" << tries << dendl;
         continue;
       }
@@ -11150,6 +11150,10 @@ void RGWRados::calculate_preferred_shards(const DoutPrefixProvider* dpp,
     // trigger resharding sooner.
     max_objs_per_shard /= 3;
   }
+
+  // make sure it's at least 1, as in some testing scenarios it's artificially low
+  constexpr uint64_t min_max_objs_per_shard = 1;
+  max_objs_per_shard = std::max(min_max_objs_per_shard, max_objs_per_shard);
 
   const bool is_multisite = svc.zone->need_to_log_data();
 

@@ -29,7 +29,6 @@
   $button-tertiary-hover: darken(vv.$primary, 5%),
   $button-tertiary-active: darken(vv.$primary, 10%)
 );
-
 @use '@carbon/styles';
 @use '@carbon/type';
 
@@ -87,8 +86,10 @@ Overflow menu
 /******************************************
 Forms
 ******************************************/
-.form-header {
+.form-header,
+.panel-header {
   @include type.type-style('heading-04');
+
   margin-bottom: 40px;
 }
 
@@ -96,6 +97,7 @@ Forms
   @extend .pb-1;
   @extend .mt-4;
   @extend .mb-4;
+
   @include type.type-style('heading-03');
 }
 
@@ -147,6 +149,7 @@ cd-dashboard {
 /******************************************
 Code snippet
 ******************************************/
+
 .cds--snippet {
   width: fit-content;
 }
@@ -172,4 +175,40 @@ Tabs
 ******************************************/
 .cds--tab-content {
   background: var(--cds-layer-01);
+}
+
+.cds-success-color {
+  fill: theme.$support-success;
+}
+
+.cds-danger-color {
+  fill: theme.$support-error;
+}
+
+.cds-info-color {
+  fill: theme.$support-info;
+}
+
+.cds-warning-color {
+  fill: theme.$support-caution-major;
+}
+
+.cds-white {
+  fill: theme.$icon-on-color;
+}
+
+.cds-icon--size-07 {
+  height: layout.$spacing-07;
+  width: layout.$spacing-07;
+}
+
+.cds-icon--size-10 {
+  display: block;
+  height: layout.$spacing-10;
+  margin: auto;
+  width: layout.$spacing-10;
+}
+
+.cds-mb-4 {
+  margin-bottom: layout.$spacing-02;
 }

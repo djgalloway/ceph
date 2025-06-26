@@ -8,7 +8,7 @@
 #include "crimson/os/seastore/transaction_manager.h"
 #include "crimson/os/seastore/journal.h"
 #include "crimson/os/seastore/journal/circular_bounded_journal.h"
-#include "crimson/os/seastore/lba_manager/btree/lba_btree_node.h"
+#include "crimson/os/seastore/lba/lba_btree_node.h"
 #include "crimson/os/seastore/random_block_manager/rbm_device.h"
 
 /*
@@ -586,8 +586,8 @@ TransactionManager::rewrite_logical_extent(
               *nextent,
               refcount
             ).si_then([extent, nextent, off](auto mapping) {
-              ceph_assert(mapping->get_key() == extent->get_laddr() + off);
-              ceph_assert(mapping->get_val() == nextent->get_paddr());
+              ceph_assert(mapping.get_key() == extent->get_laddr() + off);
+              ceph_assert(mapping.get_val() == nextent->get_paddr());
               return seastar::now();
             });
           }
@@ -629,19 +629,18 @@ TransactionManager::rewrite_extent_ret TransactionManager::rewrite_extent(
   }
 
   assert(extent->is_valid() && !extent->is_initial_pending());
-  if (extent->is_dirty()) {
+  if (extent->has_mutation() || extent->is_stable_dirty()) {
     assert(extent->get_version() > 0);
     if (is_root_type(extent->get_type())) {
       // pass
-    } else if (extent->get_version() == 1 && extent->is_mutation_pending()) {
+    } else if (extent->get_version() == 1 && extent->has_mutation()) {
       t.get_rewrite_stats().account_n_dirty();
     } else {
+      // extent->get_version() > 1 or DIRTY
       t.get_rewrite_stats().account_dirty(extent->get_version());
     }
-    if (epm->can_inplace_rewrite(t, extent)) {
-      // FIXME: is_dirty() is true for mutation pending extents
-      // which shouldn't do inplace rewrite because a pending transaction
-      // may fail.
+    if (extent->is_stable_dirty()
+        && epm->can_inplace_rewrite(t, extent)) {
       t.add_inplace_rewrite_extent(extent);
       extent->set_inplace_rewrite_generation();
       DEBUGT("rewritten as inplace rewrite -- {}", t, *extent);
@@ -712,7 +711,7 @@ TransactionManager::get_extents_if_live(
 	t,
 	laddr,
 	len
-      ).si_then([this, FNAME, type, paddr, laddr, len, &t](lba_pin_list_t pin_list) {
+      ).si_then([this, FNAME, type, paddr, laddr, len, &t](lba_mapping_list_t pin_list) {
 	return seastar::do_with(
 	  std::list<CachedExtentRef>(),
 	  std::move(pin_list),
@@ -723,10 +722,10 @@ TransactionManager::get_extents_if_live(
           return trans_intr::parallel_for_each(
             pin_list,
             [this, FNAME, type, paddr_seg_id, &extent_list, &t](
-              LBAMappingRef& pin) -> Cache::get_extent_iertr::future<>
+              LBAMapping& pin) -> Cache::get_extent_iertr::future<>
           {
-            DEBUGT("got pin, try read in parallel ... -- {}", t, *pin);
-            auto pin_paddr = pin->get_val();
+            DEBUGT("got pin, try read in parallel ... -- {}", t, pin);
+            auto pin_paddr = pin.get_val();
             if (!pin_paddr.is_absolute_segmented()) {
               return seastar::now();
             }
@@ -805,7 +804,7 @@ TransactionManagerRef make_transaction_manager(
 {
   auto epm = std::make_unique<ExtentPlacementManager>();
   auto cache = std::make_unique<Cache>(*epm);
-  auto lba_manager = lba_manager::create_lba_manager(*cache);
+  auto lba_manager = lba::create_lba_manager(*cache);
   auto sms = std::make_unique<SegmentManagerGroup>();
   auto rbs = std::make_unique<RBMDeviceGroup>();
   auto backref_manager = create_backref_manager(*cache);

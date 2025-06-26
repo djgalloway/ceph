@@ -66,7 +66,8 @@ struct OMapNode : LogicalChildNode {
     omap_context_t oc,
     const std::string &key) = 0;
 
-  using insert_iertr = base_iertr;
+  using insert_iertr = base_iertr::extend<
+    crimson::ct_error::value_too_large>;
   using insert_ret = insert_iertr::future<mutation_result_t>;
   virtual insert_ret insert(
     omap_context_t oc,
@@ -104,7 +105,8 @@ struct OMapNode : LogicalChildNode {
           <std::tuple<OMapNodeRef, OMapNodeRef, std::string>>;
   virtual make_balanced_ret make_balanced(
     omap_context_t oc,
-    OMapNodeRef _right) = 0;
+    OMapNodeRef _right,
+    uint32_t pivot_idx) = 0;
 
   virtual omap_node_meta_t get_node_meta() const = 0;
   virtual bool extent_will_overflow(
@@ -115,6 +117,10 @@ struct OMapNode : LogicalChildNode {
   virtual uint32_t get_node_size() = 0;
 
   virtual ~OMapNode() = default;
+
+  virtual bool exceeds_max_kv_limit(
+    const std::string &key,
+    const ceph::bufferlist &value) const = 0;
 
   void init_range(std::string _begin, std::string _end) {
     assert(begin.empty());
@@ -132,6 +138,10 @@ struct OMapNode : LogicalChildNode {
     return end;
   }
   bool is_btree_root() const { return root; }
+protected:
+  void set_root(bool is_root) {
+    root = is_root;
+  }
 private:
   bool root = false;
   std::string begin;
