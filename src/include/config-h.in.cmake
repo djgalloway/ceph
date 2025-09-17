@@ -366,6 +366,9 @@
 /* Backend POSIX for Rados Gateway */
 #cmakedefine WITH_RADOSGW_POSIX
 
+/* Backend RADOS for Rados Gateway */
+#cmakedefine WITH_RADOSGW_RADOS
+
 /* Defined if std::map::merge() is supported */
 #cmakedefine HAVE_STDLIB_MAP_SPLICING
 
@@ -404,5 +407,8 @@
 
 /* libexec directory path */
 #cmakedefine CMAKE_INSTALL_LIBEXECDIR "@CMAKE_INSTALL_LIBEXECDIR@"
+
+/* Define if breakpad is available */
+#cmakedefine HAVE_BREAKPAD
 
 #endif /* CONFIG_H */

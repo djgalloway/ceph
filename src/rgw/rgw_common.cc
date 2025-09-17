@@ -112,6 +112,7 @@ rgw_http_errors rgw_http_s3_errors({
     { ERR_METHOD_NOT_ALLOWED, {405, "MethodNotAllowed" }},
     { ETIMEDOUT, {408, "RequestTimeout" }},
     { EEXIST, {409, "BucketAlreadyExists" }},
+    { ERR_BUCKET_EXISTS, {409, "BucketAlreadyExists" }},
     { ERR_USER_EXIST, {409, "UserAlreadyExists" }},
     { ERR_EMAIL_EXIST, {409, "EmailExists" }},
     { ERR_KEY_EXIST, {409, "KeyExists"}},
@@ -1771,7 +1772,7 @@ std::string url_decode(const std::string_view& src_str, bool in_query)
       }
     }
   }
-
+ 
   return dest_str;
 }
 

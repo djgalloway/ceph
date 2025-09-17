@@ -614,7 +614,7 @@ if(WITH_RBD)
     add_dependencies(tests unittest_librbd rbd-mirror)
   endif(WITH_RBD_MIRROR)
 endif(WITH_RBD)
-if(WITH_RADOSGW)
+if(WITH_RADOSGW AND WITH_RADOSGW_RADOS)
   add_dependencies(tests radosgw radosgw-admin)
 endif()
 #add dependency from fio just to ensure the plugin build isn't failing
@@ -1025,6 +1025,15 @@ add_executable(test_nvmeof_mon_encoding
 target_link_libraries(test_nvmeof_mon_encoding
   mon ceph-common global-static
   )
+
+
+if(WITH_BREAKPAD)
+# unittest_ceph_breakpad
+add_executable(unittest_ceph_breakpad
+  ceph_breakpad.cc)
+add_ceph_unittest(unittest_ceph_breakpad)
+target_link_libraries(unittest_ceph_breakpad ceph-common global Breakpad::breakpad)
+endif()
 
 if(NOT WIN32)
 # unittest_ceph_assert

@@ -284,7 +284,6 @@ class ScrubMachine : public ScrubFsmIf, public sc::state_machine<ScrubMachine, N
  public:
   friend class PgScrubber;
 
- public:
   explicit ScrubMachine(PG* pg, ScrubMachineListener* pg_scrub);
   virtual ~ScrubMachine();
 
@@ -309,10 +308,14 @@ class ScrubMachine : public ScrubFsmIf, public sc::state_machine<ScrubMachine, N
     sc::state_machine<ScrubMachine, NotActive>::process_event(evt);
   }
 
-// ///////////////// aux declarations & functions //////////////////////// //
+  /// the time when the session was initiated
+  std::optional<ScrubTimePoint> m_session_started_at;
 
+
+  // ///////////////// aux declarations & functions //////////////////////// //
 
 private:
+
   /**
    * scheduled_event_state_t
    *
@@ -334,7 +337,7 @@ private:
        * retain the token until the event either fires or is canceled.
        * If a user needs/wants to relax that requirement, this assert can
        * be removed */
-      assert(!cb_token);
+      ceph_assert(!cb_token);
     }
   };
 public:
@@ -361,7 +364,7 @@ public:
       ScrubMachine *parent,
       std::shared_ptr<scheduled_event_state_t> event_state)
       :  parent(parent), event_state(event_state) {
-      assert(*this);
+      ceph_assert(*this);
     }
 
     void swap(timer_event_token_t &rhs) {
@@ -373,17 +376,17 @@ public:
     timer_event_token_t() = default;
     timer_event_token_t(timer_event_token_t &&rhs) {
       swap(rhs);
-      assert(static_cast<bool>(parent) == static_cast<bool>(event_state));
+      ceph_assert(static_cast<bool>(parent) == static_cast<bool>(event_state));
     }
 
     timer_event_token_t &operator=(timer_event_token_t &&rhs) {
       swap(rhs);
-      assert(static_cast<bool>(parent) == static_cast<bool>(event_state));
+      ceph_assert(static_cast<bool>(parent) == static_cast<bool>(event_state));
       return *this;
     }
 
     operator bool() const {
-      assert(static_cast<bool>(parent) == static_cast<bool>(event_state));
+      ceph_assert(static_cast<bool>(parent) == static_cast<bool>(event_state));
       return parent;
     }
 
@@ -425,7 +428,7 @@ public:
 	  token->cb_token = nullptr;
 	  process_event(std::move(event));
 	} else {
-	  assert(nullptr == token->cb_token);
+	  ceph_assert(nullptr == token->cb_token);
 	}
       }
     );
@@ -572,9 +575,6 @@ struct Session : sc::state<Session, PrimaryActive, ReservingReplicas>,
   /// the set of performance counters for this session (relevant, i.e. for
   /// this pool type)
   const ScrubCounterSet* m_counters_idx{nullptr};
-
-  /// the time when the session was initiated
-  ScrubTimePoint m_session_started_at{ScrubClock::now()};
 
   /// abort reason - if known. Determines the delay time imposed on the
   /// failed scrub target.

@@ -9,10 +9,6 @@
 
 namespace crimson::os::seastore {
 
-// XXX: It happens to be true that the width of node
-// 	index in lba and omap tree are the same.
-using btreenode_pos_t = uint16_t;
-
 template <typename ParentT>
 class child_pos_t {
 public:
@@ -200,15 +196,18 @@ public:
   bool is_parent_valid() const {
     return parent_tracker && parent_tracker->is_valid();
   }
-  TCachedExtentRef<ParentT> get_parent_node() const {
+  // this method should only be used for asserts and logs, because
+  // the parent node might be stable writing and should "wait_io"
+  // before further access
+  TCachedExtentRef<ParentT> peek_parent_node() const {
     assert(parent_tracker);
     return parent_tracker->get_parent();
   }
   virtual key_t node_begin() const = 0;
 protected:
   parent_tracker_ref<ParentT> parent_tracker;
-  virtual bool valid() const = 0;
-  virtual bool pending() const = 0;
+  virtual bool _is_valid() const = 0;
+  virtual bool _is_stable() const = 0;
   template <typename, typename, typename>
   friend class ParentNode;
 };
@@ -361,8 +360,8 @@ public:
     assert(pos < me.get_size());
     assert(pos < children.capacity());
     assert(child);
-    ceph_assert(!me.is_pending());
-    assert(child->valid() && !child->pending());
+    ceph_assert(me.is_stable());
+    assert(child->_is_stable());
     assert(!children[pos]);
     ceph_assert(is_valid_child_ptr(child));
     update_child_ptr(pos, child);
@@ -461,7 +460,7 @@ protected:
 
   void on_rewrite(Transaction &t, T &foreign_extent) {
     auto &me = down_cast();
-    if (!foreign_extent.is_pending()) {
+    if (foreign_extent.is_stable()) {
       foreign_extent.add_copy_dest(t, &me);
       copy_sources.emplace(&foreign_extent);
     } else {
@@ -509,7 +508,7 @@ protected:
     T &src)
   {
     ceph_assert(dest.is_initial_pending());
-    if (!src.is_pending()) {
+    if (src.is_stable()) {
       src.add_copy_dest(t, &dest);
       dest.copy_sources.emplace(&src);
     } else if (src.is_mutation_pending()) {
@@ -632,18 +631,14 @@ protected:
     Transaction &t,
     T &left,
     T &right,
-    bool prefer_left,
+    uint32_t pivot_idx,
     T &replacement_left,
     T &replacement_right)
   {
     size_t l_size = left.get_size();
     size_t r_size = right.get_size();
-    size_t total = l_size + r_size;
-    size_t pivot_idx = (l_size + r_size) / 2;
-    if (total % 2 && prefer_left) {
-      pivot_idx++;
-    }
 
+    ceph_assert(pivot_idx != l_size && pivot_idx != r_size);
     replacement_left.maybe_expand_children(pivot_idx);
     replacement_right.maybe_expand_children(r_size + l_size - pivot_idx);
 
@@ -682,17 +677,11 @@ protected:
     Transaction &t,
     T &left,
     T &right,
-    bool prefer_left,
+    uint32_t pivot_idx,
     T &replacement_left,
     T &replacement_right)
   {
     size_t l_size = left.get_size();
-    size_t r_size = right.get_size();
-    size_t total = l_size + r_size;
-    size_t pivot_idx = (l_size + r_size) / 2;
-    if (total % 2 && prefer_left) {
-      pivot_idx++;
-    }
 
     if (left.is_initial_pending()) {
       for (auto &cs : left.copy_sources) {
@@ -724,7 +713,7 @@ protected:
     for (auto it = children.begin();
 	it != children.begin() + down_cast().get_size();
 	it++) {
-      if (is_valid_child_ptr(*it) && (*it)->valid()) {
+      if (is_valid_child_ptr(*it) && (*it)->_is_valid()) {
 	return false;
       }
     }
@@ -898,7 +887,7 @@ protected:
       assert(dynamic_cast<CachedExtent*>(child)->is_logical());
       assert(
 	dynamic_cast<CachedExtent*>(child)->is_pending_in_trans(t.get_trans_id())
-	|| me.is_stable_written());
+	|| me.is_stable_ready());
       if (data_only) {
 	return etvr.is_viewable_extent_data_stable(
 	  t, dynamic_cast<CachedExtent*>(child));
@@ -1013,7 +1002,7 @@ protected:
     assert(!down_cast().is_btree_root());
     assert(this->has_parent_tracker());
     auto off = get_parent_pos();
-    auto parent = this->get_parent_node();
+    auto parent = this->peek_parent_node();
     assert(parent->children[off] == &down_cast());
     parent->children[off] = nullptr;
   }
@@ -1032,7 +1021,7 @@ private:
     this->parent_tracker = prior.BaseChildNode<ParentT, key_t>::parent_tracker;
     assert(this->has_parent_tracker());
     auto off = get_parent_pos();
-    auto parent = this->get_parent_node();
+    auto parent = this->peek_parent_node();
     assert(me.get_prior_instance().get() ==
 	   dynamic_cast<CachedExtent*>(parent->children[off]));
     parent->children[off] = &me;
@@ -1040,7 +1029,7 @@ private:
 
   btreenode_pos_t get_parent_pos() const {
     auto &me = down_cast();
-    auto parent = this->get_parent_node();
+    auto parent = this->peek_parent_node();
     assert(parent);
     //TODO: can this search be avoided?
     auto key = me.get_begin();
@@ -1052,11 +1041,11 @@ private:
     assert(iter.get_key() == me.get_begin());
     return iter.get_offset();
   }
-  bool valid() const final {
+  bool _is_valid() const final {
     return down_cast().is_valid();
   }
-  bool pending() const final {
-    return down_cast().is_pending();
+  bool _is_stable() const final {
+    return down_cast().is_stable();
   }
   key_t node_begin() const final {
     return down_cast().get_begin();

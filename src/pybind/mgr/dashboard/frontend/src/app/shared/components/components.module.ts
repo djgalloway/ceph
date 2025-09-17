@@ -35,9 +35,11 @@ import {
   DropdownModule,
   SelectModule,
   ComboBoxModule,
-  ProgressIndicatorModule
+  ProgressIndicatorModule,
+  PanelModule
 } from 'carbon-components-angular';
-
+import EditIcon from '@carbon/icons/es/edit/20';
+import CodeIcon from '@carbon/icons/es/code/16';
 import { MotdComponent } from '~/app/shared/components/motd/motd.component';
 import { DirectivesModule } from '../directives/directives.module';
 import { PipesModule } from '../pipes/pipes.module';
@@ -80,10 +82,12 @@ import { HelpTextComponent } from './help-text/help-text.component';
 import { FormAdvancedFieldsetComponent } from './form-advanced-fieldset/form-advanced-fieldset.component';
 import { UpgradableComponent } from './upgradable/upgradable.component';
 import { ProgressComponent } from './progress/progress.component';
+import { SidePanelComponent } from './side-panel/side-panel.component';
 
 // Icons
 import InfoIcon from '@carbon/icons/es/information/16';
 import CopyIcon from '@carbon/icons/es/copy/32';
+import downloadIcon from '@carbon/icons/es/download/16';
 
 @NgModule({
   imports: [
@@ -122,7 +126,8 @@ import CopyIcon from '@carbon/icons/es/copy/32';
     SelectModule,
     ComboBoxModule,
     ProgressIndicatorModule,
-    BaseChartDirective
+    BaseChartDirective,
+    PanelModule
   ],
   declarations: [
     SparklineComponent,
@@ -164,7 +169,8 @@ import CopyIcon from '@carbon/icons/es/copy/32';
     HelpTextComponent,
     FormAdvancedFieldsetComponent,
     UpgradableComponent,
-    ProgressComponent
+    ProgressComponent,
+    SidePanelComponent
   ],
   providers: [provideCharts(withDefaultRegisterables())],
   exports: [
@@ -203,11 +209,12 @@ import CopyIcon from '@carbon/icons/es/copy/32';
     HelpTextComponent,
     FormAdvancedFieldsetComponent,
     UpgradableComponent,
-    ProgressComponent
+    ProgressComponent,
+    SidePanelComponent
   ]
 })
 export class ComponentsModule {
   constructor(private iconService: IconService) {
-    this.iconService.registerAll([InfoIcon, CopyIcon]);
+    this.iconService.registerAll([InfoIcon, CopyIcon, EditIcon, CodeIcon, downloadIcon]);
   }
 }

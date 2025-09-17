@@ -1295,6 +1295,25 @@ void RGWPutObjTags::execute(optional_yield y)
     return;
   }
 
+  op_ret = s->object->get_obj_attrs(y, this);
+  if (op_ret < 0) {
+    ldpp_dout(this, 0) << "ERROR: failed to get obj attrs, obj=" << s->object
+                       << " ret=" << op_ret << dendl;
+    return;
+  }
+  const auto etag = s->object->get_attrs()[RGW_ATTR_ETAG].to_str();
+  op_ret = rgw::bucketlogging::log_record(driver,
+      rgw::bucketlogging::LoggingType::Journal,
+      s->object.get(),
+      s,
+      canonical_name(),
+      etag,
+      s->object->get_size(),
+      this, y, false, false);
+  if (op_ret < 0) {
+    return;
+  }
+
   s->object->set_atomic(true);
   op_ret = s->object->modify_obj_attrs(RGW_ATTR_TAGS, tags_bl, y, this);
   if (op_ret == -ECANCELED){
@@ -1328,6 +1347,25 @@ void RGWDeleteObjTags::execute(optional_yield y)
 {
   if (rgw::sal::Object::empty(s->object.get()))
     return;
+
+  op_ret = s->object->get_obj_attrs(y, this);
+  if (op_ret < 0) {
+    ldpp_dout(this, 0) << "ERROR: failed to get obj attrs, obj=" << s->object
+                       << " ret=" << op_ret << dendl;
+    return;
+  }
+  const auto etag = s->object->get_attrs()[RGW_ATTR_ETAG].to_str();
+  op_ret = rgw::bucketlogging::log_record(driver,
+      rgw::bucketlogging::LoggingType::Journal,
+      s->object.get(),
+      s,
+      canonical_name(),
+      etag,
+      s->object->get_size(),
+      this, y, false, false);
+  if (op_ret < 0) {
+    return;
+  }
 
   op_ret = s->object->delete_obj_attrs(this, RGW_ATTR_TAGS, y);
 }
@@ -3889,8 +3927,8 @@ void RGWCreateBucket::execute(optional_yield y)
     if (op_ret >= 0) {
       op_ret = -ERR_BUCKET_EXISTS;
     }
-  }
-}
+  } /* if (need_metadata_upload() && existed) */
+} /* RGWCreateBucket::execute() */
 
 int RGWDeleteBucket::verify_permission(optional_yield y)
 {
@@ -3993,13 +4031,17 @@ int RGWPutObj::init_processing(optional_yield y) {
     copy_source_bucket_name = copy_source_bucket_name.substr(0, pos);
 #define VERSION_ID_STR "?versionId="
     pos = copy_source_object_name.find(VERSION_ID_STR);
-    if (pos == std::string::npos) {
-      copy_source_object_name = url_decode(copy_source_object_name);
-    } else {
+    if (pos != std::string::npos) {
       copy_source_version_id =
         copy_source_object_name.substr(pos + sizeof(VERSION_ID_STR) - 1);
       copy_source_object_name =
-        url_decode(copy_source_object_name.substr(0, pos));
+        copy_source_object_name.substr(0, pos);
+    }
+    if (copy_source_object_name.empty()) {
+      //means copy_source_object_name is empty string so the url is formatted badly
+      ret = -EINVAL;
+      ldpp_dout(this, 5) << "x-amz-copy-source bad format" << dendl;
+      return ret;
     }
     pos = copy_source_bucket_name.find(":");
     if (pos == std::string::npos) {
@@ -4797,8 +4839,23 @@ void RGWPutObj::execute(optional_yield y)
     return;
   }
 
+  auto ret = rgw::bucketlogging::log_record(driver,
+      rgw::bucketlogging::LoggingType::Standard,
+      s->object.get(),
+      s,
+      (multipart ? "REST.PUT.PART" : canonical_name()),
+      etag,
+      s->object->get_size(),
+      this,
+      y,
+      true,
+      false);
+  if (ret  < 0) {
+    ldpp_dout(this, 5) << "WARNING: in Standard mode, put object operation ignores bucket logging failure: " << ret << dendl;
+ }
+
   // send request to notification manager
-  int ret = res->publish_commit(this, s->obj_size, mtime, etag, s->object->get_instance());
+  ret = res->publish_commit(this, s->obj_size, mtime, etag, s->object->get_instance());
   if (ret < 0) {
     ldpp_dout(this, 1) << "ERROR: publishing notification failed, with error: " << ret << dendl;
     // too late to rollback operation, hence op_ret is not set here
@@ -5931,6 +5988,7 @@ void RGWCopyObj::execute(optional_yield y)
     if (op_ret < 0) {
       return;
     }
+    obj_size = s->src_object->get_size();
 
     /* Check if the src object is cloud-tiered */
     bufferlist bl;
@@ -5938,7 +5996,8 @@ void RGWCopyObj::execute(optional_yield y)
       RGWObjManifest m;
       try{
         decode(m, bl);
-        if (m.is_tier_type_s3()) {
+	// if object size is zero, then it transitioned object
+        if (m.is_tier_type_s3() && (obj_size == 0)) {
           op_ret = -ERR_INVALID_OBJECT_STATE;
           s->err.message = "This object was transitioned to cloud-s3";
           ldpp_dout(this, 4) << "Cannot copy cloud tiered object. Failing with "
@@ -5953,8 +6012,7 @@ void RGWCopyObj::execute(optional_yield y)
       }
     }
 
-    obj_size = s->src_object->get_size();
-  
+
     if (!s->system_request) { // no quota enforcement for system requests
       if (s->src_object->get_accounted_size() > static_cast<size_t>(s->cct->_conf->rgw_max_put_size)) {
         op_ret = -ERR_TOO_LARGE;
@@ -6315,6 +6373,22 @@ void RGWPutACLs::execute(optional_yield y)
       new_policy.is_public(this)) {
     op_ret = -EACCES;
     return;
+  }
+
+  if (!rgw::sal::Object::empty(s->object)) {
+    // in journal mode we log only object ACLs
+    const auto etag = s->object->get_attrs()[RGW_ATTR_ETAG].to_str();
+    op_ret = rgw::bucketlogging::log_record(driver,
+        rgw::bucketlogging::LoggingType::Journal,
+        s->object.get(),
+        s,
+        canonical_name(),
+        etag,
+        s->object->get_size(),
+        this, y, false, false);
+    if (op_ret < 0) {
+      return;
+    }
   }
 
   bufferlist bl;
@@ -6959,7 +7033,7 @@ void RGWCompleteMultipart::execute(optional_yield y)
     fmt::format("INFO: {}->get_multipart_upload for obj {}, {} cksum_type {}",
 		s->bucket->get_name(),
 		s->object->get_name(), upload_id,
-		(!!upload) ? to_string(upload->cksum_type) : 0)
+		(!!upload) ? to_string(upload->cksum_type) : "nil")
 		<< dendl;
 
   rgw_placement_rule* dest_placement;
@@ -7118,6 +7192,12 @@ void RGWCompleteMultipart::execute(optional_yield y)
     return;
   }
 
+  // size is logged in stadared mode
+  int ret = rgw::bucketlogging::log_record(driver, rgw::bucketlogging::LoggingType::Standard, s->object.get(), s, canonical_name(), "", ofs, this, y, true, false);
+  if (ret < 0) {
+    ldpp_dout(this, 5) << "WARNING: in Standard mode, complete MPU operation ignores bucket logging failure: " << ret << dendl;
+  }
+
   remove_objs.clear();
 
   // use cls_version_check() when deleting the meta object to detect part uploads that raced
@@ -7163,7 +7243,7 @@ void RGWCompleteMultipart::execute(optional_yield y)
   etag = s->object->get_attrs()[RGW_ATTR_ETAG].to_str();
 
   // send request to notification manager
-  int ret = res->publish_commit(this, ofs, upload_time, etag, s->object->get_instance());
+  ret = res->publish_commit(this, ofs, upload_time, etag, s->object->get_instance());
   if (ret < 0) {
     ldpp_dout(this, 1) << "ERROR: publishing notification failed, with error: " << ret << dendl;
     // too late to rollback operation, hence op_ret is not set here
@@ -8991,6 +9071,19 @@ void RGWPutObjRetention::execute(optional_yield y)
     }
   }
 
+  const auto etag = s->object->get_attrs()[RGW_ATTR_ETAG].to_str();
+  op_ret = rgw::bucketlogging::log_record(driver,
+      rgw::bucketlogging::LoggingType::Journal,
+      s->object.get(),
+      s,
+      canonical_name(),
+      etag,
+      s->object->get_size(),
+      this, y, false, false);
+  if (op_ret < 0) {
+    return;
+  }
+
   op_ret = s->object->modify_obj_attrs(RGW_ATTR_OBJECT_RETENTION, bl, s->yield, this);
 
   return;
@@ -9093,6 +9186,26 @@ void RGWPutObjLegalHold::execute(optional_yield y) {
     op_ret = -ERR_MALFORMED_XML;
     return;
   }
+
+  op_ret = s->object->get_obj_attrs(y, this);
+  if (op_ret < 0) {
+    ldpp_dout(this, 0) << "ERROR: failed to get obj attrs, obj=" << s->object
+                       << " ret=" << op_ret << dendl;
+    return;
+  }
+  const auto etag = s->object->get_attrs()[RGW_ATTR_ETAG].to_str();
+  op_ret = rgw::bucketlogging::log_record(driver,
+      rgw::bucketlogging::LoggingType::Journal,
+      s->object.get(),
+      s,
+      canonical_name(),
+      etag,
+      s->object->get_size(),
+      this, y, false, false);
+  if (op_ret < 0) {
+    return;
+  }
+
   bufferlist bl;
   obj_legal_hold.encode(bl);
   //if instance is empty, we should modify the latest object

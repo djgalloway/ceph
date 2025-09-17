@@ -105,8 +105,10 @@ set(common_srcs
   utf8.c
   util.cc
   version.cc
+  mclock_common.cc
   tcp_info.cc)
 
+include_directories(${CMAKE_SOURCE_DIR}/src/dmclock/support/src)
 if(WITH_SYSTEMD)
   list(APPEND common_srcs
     Journald.cc)
@@ -196,7 +198,11 @@ target_compile_definitions(common-common-objs PRIVATE
   "CEPH_INSTALL_FULL_PKGLIBDIR=\"${CEPH_INSTALL_FULL_PKGLIBDIR}\""
   "CEPH_INSTALL_DATADIR=\"${CEPH_INSTALL_DATADIR}\""
   $<TARGET_PROPERTY:${FMT_LIB},INTERFACE_COMPILE_DEFINITIONS>)
-target_link_libraries(common-common-objs legacy-option-headers)
+target_link_libraries(common-common-objs PUBLIC legacy-option-headers)
+if(WITH_BREAKPAD)
+  target_link_libraries(common-common-objs PUBLIC
+    Breakpad::client)
+endif()
 
 set(common_mountcephfs_srcs
   armor.c
